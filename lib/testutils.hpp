@@ -6,9 +6,7 @@
 #ifdef TU_DEBUG
 #define DEBUG(x) (x)
 #else
-#define DEBUG(x) \
-  do {           \
-  } while (0)
+#define DEBUG(x)
 #endif
 
 namespace testutils {
@@ -16,6 +14,7 @@ namespace testutils {
 struct Scope {
   std::map<std::string, std::string> params;
   std::map<std::string, std::string> param_specs;
+  std::string param_spec_output_filename = "/tmp/params.json";
   uint64_t seed;
 } SCOPE;
 
@@ -54,6 +53,12 @@ void init(int argc, char** argv) {
       SCOPE.params[param_name] = param_value;
       DEBUG(std::cerr << "CLI param: " << param_name << " = " << param_value
                       << std::endl);
+    }
+    if (strncmp(arg, "-po", 3) == 0) {
+      assert(i + 1 < argc);
+      SCOPE.param_spec_output_filename = argv[i + 1];
+      DEBUG(std::cerr << "params output override to: "
+                      << SCOPE.param_spec_output_filename << std::endl);
     }
   }
 }

@@ -112,6 +112,16 @@ class ChoiceParamSpec : public ParamSpec<std::string> {
   ParamSpec<std::string>* clone() { return new ChoiceParamSpec(*this); }
 };
 
+std::string get_specs() {
+  std::string ans = "{";
+  for (auto p : SCOPE.param_specs) {
+    if (ans.size() != 1) ans += ", ";
+    ans += "\"" + p.first + "\": " + p.second;
+  }
+  ans += "}";
+  return ans;
+}
+
 template <typename TValue>
 class Param {
   std::string name;
@@ -134,20 +144,14 @@ class Param {
   }
   TValue get() {
     if (!SCOPE.params.count(name)) {
-      throw std::runtime_error("Missing required param: '" + name + "'");
+      auto specs = get_specs();
+      std::ofstream fout(SCOPE.param_spec_output_filename);
+      fout << specs << std::endl;
+      throw std::runtime_error("Missing required param: '" + name +
+                               "' (specs dumped)");
     }
     return spec->convert(SCOPE.params[name]);
   }
 };
-
-std::string get_specs() {
-  std::string ans = "{";
-  for (auto p : SCOPE.param_specs) {
-    if (ans.size() != 1) ans += ", ";
-    ans += "\"" + p.first + "\": " + p.second;
-  }
-  ans += "}";
-  return ans;
-}
 
 }  // namespace testutils
