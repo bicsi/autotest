@@ -8,11 +8,9 @@
 namespace testutils {
 
 struct TreeGen {
-  Param<double> a;
-  Param<double> b;
-  TreeGen()
-      : a("tree/a", FloatParamSpec(0.0, 1e5)),
-        b("tree/b", FloatParamSpec(0.0, 1e5)) {}
+  FloatParam a;
+  FloatParam b;
+  TreeGen() : a("tree/a", 0.0, 1e5), b("tree/b", 0.0, 1e5) {}
 
   std::vector<int> generate(int n, bool shuffle = true) {
     std::vector<int> order(n);

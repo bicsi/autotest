@@ -16,6 +16,7 @@ struct Scope {
   std::map<std::string, std::string> param_specs;
   std::string param_spec_output_filename = "/tmp/params.json";
   uint64_t seed;
+  bool interactive;
 } SCOPE;
 
 std::mt19937_64 rng;
@@ -49,16 +50,20 @@ void init(int argc, char** argv) {
     if (arg[0] == '-' && arg[1] == 'P') {
       assert(i + 1 < argc);
       std::string param_name = arg + 2;
-      std::string param_value = argv[i + 1];
+      std::string param_value = argv[++i];
       SCOPE.params[param_name] = param_value;
       DEBUG(std::cerr << "CLI param: " << param_name << " = " << param_value
                       << std::endl);
-    }
-    if (strncmp(arg, "-po", 3) == 0) {
+    } else if (strcmp(arg, "-po") == 0) {
       assert(i + 1 < argc);
-      SCOPE.param_spec_output_filename = argv[i + 1];
+      SCOPE.param_spec_output_filename = argv[++i];
       DEBUG(std::cerr << "params output override to: "
                       << SCOPE.param_spec_output_filename << std::endl);
+    } else if (strcmp(arg, "--interactive") == 0) {
+      SCOPE.interactive = true;
+    } else {
+      throw std::runtime_error(std::string() + "Unrecognized option: '" +
+                               argv[i] + "'");
     }
   }
 }

@@ -21,12 +21,13 @@ int main(int argc, char** argv) {
   init(argc, argv);
   TreeGen tg;
 
-  int n = 1000;
+  int n = IntegerParam("n", 1, 100000).get();
   auto par = tg.generate(n);
   for (int i = 0; i < n; ++i) {
     if (par[i] != -1) {
       cout << i + 1 << " " << par[i] + 1 << '\n';
     }
   }
+
   return 0;
 }
