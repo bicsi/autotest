@@ -14,7 +14,7 @@ namespace testutils {
 struct Scope {
   std::map<std::string, std::string> params;
   std::map<std::string, std::string> param_specs;
-  std::string param_spec_output_filename = "/tmp/params.json";
+  std::string param_spec_output_filename = "/tmp/params.sexp";
   uint64_t seed;
   bool interactive;
 } SCOPE;

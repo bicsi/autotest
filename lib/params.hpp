@@ -11,13 +11,16 @@ namespace testutils {
 const std::string TU_PARAM_REQ = "TU_PARAM_REQ";
 
 std::string get_specs() {
-  std::string ans = "{";
+  std::stringstream ss;
+  ss << "(";
+  bool first = true;
   for (auto p : SCOPE.param_specs) {
-    if (ans.size() != 1) ans += ", ";
-    ans += "\"" + p.first + "\": " + p.second;
+    if (!first) ss << " ";
+    ss << "(" << p.first << " " << p.second << ")";
+    first = false;
   }
-  ans += "}";
-  return ans;
+  ss << ")";
+  return ss.str();
 }
 
 template <typename TValue>
@@ -26,14 +29,14 @@ class Param {
   std::string name;
 
   virtual TValue parse(std::string value) = 0;
-  virtual std::string str() = 0;
+  virtual std::string to_sexp() = 0;
 
   void _register() {
     if (SCOPE.param_specs.count(name)) {
       throw std::runtime_error("Multiple params registered for: '" + name +
                                "'");
     }
-    SCOPE.param_specs[name] = str();
+    SCOPE.param_specs[name] = to_sexp();
   }
 
  public:
@@ -48,7 +51,8 @@ class Param {
   TValue get() {
     if (!SCOPE.params.count(name)) {
       if (SCOPE.interactive) {
-        std::cout << TU_PARAM_REQ << " " << name << " " << str() << std::endl;
+        std::cout << TU_PARAM_REQ << " " << name << " " << to_sexp()
+                  << std::endl;
         std::string value;
         std::cin >> value;
         SCOPE.params[name] = value;
@@ -82,19 +86,15 @@ class ChoiceParam : public Param<std::string> {
     throw std::runtime_error("Value '" + value + "' not amongst choices.");
   }
 
-  std::string str() {
-    std::string ret;
-    ret += "{";
-    ret += "\"type\": \"CHOICE\"";
-    ret += ", ";
-    ret += "\"choices\": [";
+  std::string to_sexp() {
+    std::stringstream ss;
+    ss << "((type choice) (choices (";
     for (int i = 0; i < (int)choices.size(); ++i) {
-      if (i > 0) ret += ", ";
-      ret += "\"" + choices[i] + "\"";
+      if (i > 0) ss << " ";
+      ss << choices[i];
     }
-    ret += "]";
-    ret += "}";
-    return ret;
+    ss << ")))";
+    return ss.str();
   }
 };
 
@@ -115,16 +115,10 @@ class FloatParam : public Param<double> {
     return value;
   }
 
-  std::string str() {
-    std::string ret;
-    ret += "{";
-    ret += "\"type\": \"FLOAT\"";
-    ret += ", ";
-    ret += "\"min\": " + std::to_string(min);
-    ret += ", ";
-    ret += "\"max\": " + std::to_string(max);
-    ret += "}";
-    return ret;
+  std::string to_sexp() {
+    std::stringstream ss;
+    ss << "((type float) (min " << min << ") (max " << max << "))";
+    return ss.str();
   }
 };
 
@@ -145,16 +139,10 @@ class IntegerParam : public Param<long long> {
     return value;
   }
 
-  std::string str() {
-    std::string ret;
-    ret += "{";
-    ret += "\"type\": \"INTEGER\"";
-    ret += ", ";
-    ret += "\"min\": " + std::to_string(min);
-    ret += ", ";
-    ret += "\"max\": " + std::to_string(max);
-    ret += "}";
-    return ret;
+  std::string to_sexp() {
+    std::stringstream ss;
+    ss << "((type int) (min " << min << ") (max " << max << "))";
+    return ss.str();
   }
 };
 
