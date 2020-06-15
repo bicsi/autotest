@@ -1,0 +1,3 @@
+tqdm==4.46.0
+hyperopt==0.2.4
+numpy==1.18.4

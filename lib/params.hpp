@@ -27,6 +27,8 @@ template <typename TValue>
 class Param {
  protected:
   std::string name;
+  TValue cached_value;
+  bool evaluated = false;
 
   virtual TValue parse(std::string value) = 0;
   virtual std::string to_sexp() = 0;
@@ -49,6 +51,7 @@ class Param {
   }
 
   TValue get() {
+    if (evaluated) return cached_value;
     if (!SCOPE.params.count(name)) {
       if (SCOPE.interactive) {
         std::cout << TU_PARAM_REQ << " " << name << " " << to_sexp()
@@ -64,7 +67,9 @@ class Param {
                                  "' (specs dumped)");
       }
     }
-    return parse(SCOPE.params[name]);
+    cached_value = parse(SCOPE.params[name]);
+    evaluated = true;
+    return cached_value;
   }
 
   virtual ~Param() {}
@@ -99,6 +104,7 @@ class ChoiceParam : public Param<std::string> {
 };
 
 class FloatParam : public Param<double> {
+ protected:
   double min, max;
 
  public:

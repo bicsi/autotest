@@ -3,10 +3,17 @@ import argparse
 import time
 import random
 import os
-# import hyperopt as hp
+import logging
+from hyperopt import hp
+import hyperopt.fmin
+import numpy as np
+import datetime
+from tqdm import trange
 
-COMPILE_COMMAND = ['g++', '-std=c++11']
+algo = hyperopt.tpe.suggest
+COMPILE_COMMAND = ['g++', '-std=c++11', '-O2']
 TU_PARAM_REQ = 'TU_PARAM_REQ'
+L2_REGULARIZATION = 0.01
 
 
 def parse_args():
@@ -21,7 +28,7 @@ def parse_args():
                         default='tests.txt',
                         help="Tests file (default: tests.txt)")
     parser.add_argument('-n', '--n-iterations', type=int,
-                        default=10,
+                        default=50,
                         help='Number of iterations, a.k.a. calls to generator (default: 10)')
     parser.add_argument('--output-dir',
                         default='out',
@@ -36,8 +43,6 @@ def parse_args():
 
 
 def parse_spec(sexp):
-    sexp = sexp.strip()
-
     def rec(pos):
         opos = pos
         if sexp[pos] == '(':
@@ -72,36 +77,39 @@ def generate_feasible_value(spec):
     return value
 
 
-def figure_out_param_specs(generator_exec_path):
-    param_specs = {}
-    with subprocess.Popen(
-            [generator_exec_path, '--interactive'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE) as process:
-        while process.poll() is None:
-            line = process.stdout.readline().decode('UTF-8')
-            if not line:
-                time.sleep(1)
-            if line.startswith(TU_PARAM_REQ):
-                _, param_name, param_spec = line.split(maxsplit=2)
-                param_spec = parse_spec(param_spec)
-                param_specs[param_name] = param_spec
-                param_value = generate_feasible_value(param_spec)
-                process.stdin.write(f"{param_value}\n".encode('UTF-8'))
-                process.stdin.flush()
-        return_code = process.wait()
-        if return_code != 0:
-            print(f'Generator retured exit code: {return_code}')
-            exit(-1)
-    return param_specs
-
-
-def run_generator(generator_exec_path, feed_dict):
-    args = [generator_exec_path]
+def run_generator(generator_exec_path, feed_dict, resolve_new_param):
+    output = []
+    args = [generator_exec_path, '--interactive']
     for name, value in feed_dict.items():
         args.append(f"-P{name}")
         args.append(str(value))
-    return subprocess.check_output(args).decode('UTF-8')
+    # logging.debug(f"Running command: {args}")
+    with subprocess.Popen(
+            args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE) as process:
+        while True:
+            line = process.stdout.readline().decode('UTF-8')
+            if not line:
+                if process.poll() is not None:
+                    break
+                time.sleep(0.01)
+            if line.startswith(TU_PARAM_REQ):
+                _, param_name, param_spec = line.split(maxsplit=2)
+                param_spec = parse_spec(param_spec.strip())
+                logging.debug(f"Found param: {param_name} {param_spec}")
+                param_value = resolve_new_param(param_name, param_spec)
+                feed_dict[param_name] = param_value
+                process.stdin.write(f"{param_value}\n".encode('UTF-8'))
+                process.stdin.flush()
+            else:
+                output.append(line)
+
+        return_code = process.wait()
+        if return_code != 0:
+            raise RuntimeError(
+                f'Generator retured non-zero exit code: {return_code}')
+    return "".join(output)
 
 
 def run_solution(solution_exec_path, in_contents):
@@ -111,13 +119,13 @@ def run_solution(solution_exec_path, in_contents):
             stderr=subprocess.PIPE) as process:
         stdout, stderr = process.communicate(
             input=in_contents.encode('UTF-8'), timeout=10)
-        if process.returncode != 0:
-            # an error happened!
-            err_msg = "%s. Code: %s" % (stderr.strip(), process.returncode)
-            raise RuntimeError(err_msg)
-        obj_outputs = list(map(float, stderr.decode(
+        return_code = process.wait()
+        if return_code != 0:
+            raise RuntimeError(
+                f"Solution returned non-zero exit code: {return_code}")
+        goal_outputs = list(map(float, stderr.decode(
             'UTF-8').strip().splitlines()[-1].split()))
-        return stdout.decode('UTF-8'), obj_outputs
+        return stdout.decode('UTF-8'), goal_outputs
 
 
 def parse_tests_file(tests_file):
@@ -136,49 +144,193 @@ def parse_tests_file(tests_file):
     return tests
 
 
+class HyperoptSampler:
+    """
+    This sample uses the hyperopt package as a backend to sample in the
+    parameter space. It has various ugly "hacks" inside the hyperopt library
+    to adhere to the scenario of parameters known while optimizing.
+
+    That's because hyperopt uses some (complicated and more or less useless)
+    representation that's compatible to NoSQL MongoDB databases.
+
+    This API choice has a lot of shortcomings in my opinion. Anyways, we would like
+    to use the hyperopt TPE as a sampler instead of the optimizer, so we have to 
+    manually handle their internal data storage.
+    """
+
+    def __init__(self):
+        # The hyperopt space will be populated as self.remember will be called
+        self.space = {}
+        # The trials keep track of the past samplings (in dict format)
+        self.trials = []
+        # This rstate is manually handled as we have a specific training loop.
+        self.rstate = np.random.RandomState()
+
+    def sample(self, test_dict):
+        # self.space keeps track of the whole parameter space; however,
+        # nothing keeps us from fixing some parameters inside this
+        # sampling.
+        space = {name: dist for name, dist in self.space.items()
+                 if name not in test_dict}
+
+        if not space:
+            return test_dict.copy()
+
+        trials = self._get_hyperopt_trials_instance()
+        feed_dict = trials.fmin(lambda _: -1., space, algo,
+                                max_evals=len(trials) + 1, show_progressbar=False, rstate=self.rstate)
+        feed_dict.update(test_dict)
+        # logging.debug(trials.trials)
+        return feed_dict
+
+    def _convert_trials_to_docs(self, space):
+        """
+        Converts dict-like trials to adhere to the 'internal' hyperopt format.
+        This might seem unnecessarily complicated (and maybe it is),
+        but I haven't managed to find a better way.
+        """
+        trials = hyperopt.Trials()
+        # These arrays are needed to create trial docs inside the hyperopt.Trials
+        # instance.
+        tids, specs, results, miscs = [], [], [], []
+        for idx, trial in enumerate(self.trials):
+            tids.append(idx)
+            specs.append(None)
+            results.append(trial['result'])
+            # This is to adhere to the hyperopt API.
+            misc = {
+                'idxs': {},
+                'cmd': ('domain_attachment', 'FMinIter_Domain'),
+                'workdir': None,
+                'vals': {},
+            }
+            for name in space:
+                misc['tid'] = idx
+                if name not in trial['vals']:
+                    misc['idxs'][name] = []
+                    misc['vals'][name] = []
+                else:
+                    misc['idxs'][name] = [idx]
+                    misc['vals'][name] = [trial['vals'][name]]
+            miscs.append(misc)
+
+        # Create the documents and populate them with more extra info.
+        docs = trials.new_trial_docs(tids, specs, results, miscs)
+        for doc in docs:
+            # Not setting this state caused trials to be completely
+            # re-evaluated.
+            doc['state'] = hyperopt.base.JOB_STATE_DONE
+            doc['book_time'] = datetime.datetime.now()
+            doc['refresh_time'] = datetime.datetime.now()
+
+        # Finally, insert the documents to recover the original db.
+        trials.insert_trial_docs(docs)
+        trials.refresh()
+
+        return trials
+
+    def resolve_new_param(self, name, spec):
+        """
+        When a new param is dynamically discovered, we update our parameter
+        space with the proper distribution
+        """
+        if spec['type'] == 'float':
+            dist = hp.uniform(name, float(spec['min']), float(spec['max']))
+        elif spec['type'] == 'int':
+            dist = hp.quniform(name, int(spec['min']), int(spec['max']))
+        elif spec['type'] == 'choice':
+            dist = hp.choice(name, [(c, c) for c in spec['choices']])
+        else:
+            raise ValueError(f"Unrecognized type: {spec['type']}")
+        self.space[name] = dist
+        return generate_feasible_value(spec)
+
+    def remember(self, feed_dict, loss):
+        """
+        This function will be called once we have evaluated a sample and know
+        its loss. In this case, we just append it to our trial records.
+        """
+        self.trials.append({
+            'vals': feed_dict.copy(),
+            'result': {
+                'status': 'ok',
+                'loss': loss,
+            }
+        })
+
+
+def generate_test(sampler, test_dict, param_specs, goal_targets, n_iterations):
+    solution = None
+    tr = trange(n_iterations, desc='GEN')
+    for _ in tr:
+        feed_dict = sampler.sample(test_dict)
+        for param_name, param_value in feed_dict.items():
+            if isinstance(param_value, float):
+                feed_dict[param_name] = round(param_value, 3)
+        # logging.debug(feed_dict)
+        # Running the generator also updates feed_dict and param_specs.
+        in_contents = run_generator(
+            './gen', feed_dict, sampler.resolve_new_param)
+        ans_contents, goal_outputs = run_solution('./sol', in_contents)
+        assert len(goal_outputs) == len(goal_targets)
+        loss, reg_loss = 0, 0
+        for i in range(len(goal_targets)):
+            loss += abs(goal_targets[i] - goal_outputs[i])
+        for p in feed_dict:
+            if p not in test_dict and isinstance(feed_dict[p], float):
+                reg_loss += L2_REGULARIZATION * feed_dict[p] ** 2
+        loss += reg_loss
+        if solution is None or solution['loss'] > loss:
+            solution = {
+                "in": in_contents,
+                "ans": ans_contents,
+                "loss": loss,
+                "feed_dict": feed_dict,
+                "goal_outputs": goal_outputs
+            }
+            tr.set_description(f"GEN Loss: {loss:.03f}")
+        sampler.remember(feed_dict, loss)
+
+    return solution
+
+
 def main(args):
+    logging.getLogger("hyperopt").setLevel(logging.WARNING)
+    logging.basicConfig(level=logging.DEBUG)
     # Compile everything.
     subprocess.check_call(COMPILE_COMMAND + [args.generator, "-o", "gen"])
     subprocess.check_call(COMPILE_COMMAND + [args.solution, "-o", "sol"])
-    # Figure out the params by running the generator in interactive mode.
-    param_specs = figure_out_param_specs('./gen')
+    # Figure out the params while running the generator in interactive mode.
+    param_specs = {}
     # Read test files to figure out feed dicts.
     tests = parse_tests_file(args.tests)
+    sampler = HyperoptSampler()
 
     for test_dict in tests:
         test_name = test_dict.pop('#')
-        obj_targets = list(map(float, [test_dict.pop('obj')]))
-        solution = None
+        idx = 0
+        goal_targets = []
+        while f'G{idx}' in test_dict:
+            goal_targets.append(float(test_dict.pop(f'G{idx}')))
 
-        print(f"Generating test '{test_name}'...")
+        logging.info(f"Generating test '{test_name}'...")
+        logging.info(f"Goal targets: {goal_targets}")
+
         tick = time.perf_counter()
-        for _ in range(args.n_iterations):
-            feed_dict = test_dict.copy()
-            for param in param_specs:
-                if param in feed_dict:
-                    continue
-                feed_dict[param] = generate_feasible_value(param_specs[param])
-            in_contents = run_generator('./gen', feed_dict)
-            ans_contents, obj_outputs = run_solution('./sol', in_contents)
-            assert len(obj_outputs) == len(obj_targets)
-            loss = 0
-            for i in range(len(obj_targets)):
-                loss += (obj_targets[i] - obj_outputs[i]) ** 2
-            if solution is None or solution['loss'] > loss:
-                solution = {
-                    "in": in_contents,
-                    "ans": ans_contents,
-                    "loss": loss,
-                    "feed_dict": feed_dict,
-                    "obj_outputs": obj_outputs
-                }
+        solution = generate_test(
+            sampler, test_dict, param_specs, goal_targets, args.n_iterations)
         tock = time.perf_counter()
-        print(
+        logging.info(
             f"Ran {args.n_iterations} iterations (time taken: {(tock - tick):.3f} s).")
+
+        if solution is None:
+            raise RuntimeError("Could not generate solution.")
+
         # print(f"Feed dict: {solution['feed_dict']}")
-        print(f"Targets: {obj_targets}")
-        print(f"Outputs: {solution['obj_outputs']}")
-        print(f"(loss: {solution['loss']})")
+        logging.info(f"Targets: {goal_targets}")
+        logging.info(f"Outputs: {solution['goal_outputs']}")
+        logging.info(f"(loss: {solution['loss']})")
+        logging.debug(solution['feed_dict'])
 
         os.makedirs(args.output_dir, exist_ok=True)
         format_map = {"name": test_name}
@@ -188,11 +340,15 @@ def main(args):
             args.output_dir, args.ans_pattern.format_map(format_map))
         with open(in_filename, 'w') as infile:
             infile.write(solution["in"])
-            print(f"Input file written to '{in_filename}'")
+            logging.info(f"Input file written to '{in_filename}'")
         with open(ans_filename, 'w') as ansfile:
             ansfile.write(solution["ans"])
-            print(f"Answer file written to '{ans_filename}'")
-        print('-' * 20)
+            logging.info(f"Answer file written to '{ans_filename}'")
+
+    logging.info("Cleaning up...")
+    os.remove("./sol")
+    os.remove("./gen")
+    logging.info("Done!")
 
 
 if __name__ == "__main__":

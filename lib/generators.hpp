@@ -21,18 +21,19 @@ double kumaraswamy_random(double a, double b) {
 }
 
 class TreeGen {
-  FloatParam a, b;
+  FloatParam loga, logb;
 
  public:
-  TreeGen() : a("tree/a", 0.0, 1e5), b("tree/b", 0.0, 1e5) {}
+  TreeGen() : loga("tree/loga", -15, 15), logb("tree/logb", -15, 15) {}
 
   std::vector<int> generate(int n, bool shuffle = true) {
+    double a = exp(loga.get()), b = exp(logb.get());
     std::vector<int> order(n);
     std::iota(order.begin(), order.end(), 0);
     if (shuffle) std::shuffle(order.begin(), order.end(), rng);
     std::vector<double> samples(n - 1);
     for (int i = 0; i < n - 1; ++i) {
-      samples[i] = kumaraswamy_random(a.get(), b.get());
+      samples[i] = kumaraswamy_random(a, b);
     }
 
     std::vector<int> ret(n, -1);
@@ -46,16 +47,18 @@ class TreeGen {
 };
 
 class PartitionGen {
-  FloatParam a, b;
+  FloatParam loga, logb;
 
  public:
-  PartitionGen() : a("partition/a", 0.0, 1e5), b("partition/b", 0.0, 1e5) {}
+  PartitionGen()
+      : loga("partition/loga", -15, 15), logb("partition/logb", -15, 15) {}
 
   std::vector<long long> generate(int n, long long s) {
+    double a = exp(loga.get()), b = exp(logb.get());
     std::vector<double> samples(n);
     double sum = 0;
     for (int i = 0; i < n; ++i) {
-      samples[i] = kumaraswamy_random(a.get(), b.get());
+      samples[i] = kumaraswamy_random(a, b);
       sum += samples[i];
     }
     std::vector<long long> values(n);
@@ -67,7 +70,10 @@ class PartitionGen {
     while (check_sum != s) {
       int idx = rng() % values.size();
       values[idx] += (check_sum < s ? +1 : -1);
-      check_sum += (check_sum < s ? +1 : -1);
+      if (values[idx] < 0)
+        values[idx] = 0;
+      else
+        check_sum += (check_sum < s ? +1 : -1);
     }
     return values;
   }
