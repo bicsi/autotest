@@ -59,7 +59,7 @@ For example, let's say that you want to generate test cases for a problem on tre
 std::cerr << diameter_of_tree << std::endl;
 ```
 
-This allows the framework will know that the metric(s) that you want to optimize will be on the last line of `stderr` (space-separated).
+This allows the framework to the metric(s) that you want to optimize, by writing them **on the last line of `stderr`** (space-separated).
 
 And, on the plus side, you can just sumbit the model solution on any OJ for testing without changing a single line of code!
 
