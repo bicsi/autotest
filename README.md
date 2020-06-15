@@ -56,7 +56,7 @@ This step is rather straightforward: just code the solution as you would (_the f
 For example, let's say that you want to generate test cases for a problem on trees, and you have figured that a brute force solution is of complexity `O(N * D)`, where `D` is the diameter of the tree. As the diameter of the tree itself might be a metric good for optimization, in your solution you would end by writing:
 
 ```c++
-std::cerr << diameter(tree) << std::endl;
+std::cerr << diameter_of_tree << std::endl;
 ```
 
 This allows the framework will know that the metric(s) that you want to optimize will be on the last line of `stderr` (space-separated).
