@@ -9,7 +9,7 @@
 #define DEBUG(x)
 #endif
 
-namespace testutils {
+namespace autotest {
 
 struct Scope {
   std::map<std::string, std::string> params;
@@ -68,4 +68,4 @@ void init(int argc, char** argv) {
   }
 }
 
-}  // namespace testutils
+}  // namespace autotest

@@ -1,6 +1,6 @@
 #include <bits/stdc++.h>
 
-#include "../lib/generators.hpp"
+#include "../../lib/generators.hpp"
 
 using namespace testutils;
 using namespace std;

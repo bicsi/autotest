@@ -4,9 +4,9 @@
 #include <memory>
 #include <vector>
 
-#include "testutils.hpp"
+#include "utils.hpp"
 
-namespace testutils {
+namespace autotest {
 
 const std::string TU_PARAM_REQ = "TU_PARAM_REQ";
 
@@ -152,4 +152,4 @@ class IntegerParam : public Param<long long> {
   }
 };
 
-}  // namespace testutils
+}  // namespace autotest
