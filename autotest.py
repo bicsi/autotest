@@ -176,16 +176,17 @@ class HyperoptSampler:
         if not space:
             return test_dict.copy()
 
-        trials = self._get_hyperopt_trials_instance()
+        trials = self._get_hyperopt_trials_instance(space)
         feed_dict = trials.fmin(lambda _: -1., space, algo,
                                 max_evals=len(trials) + 1, show_progressbar=False, rstate=self.rstate)
         feed_dict.update(test_dict)
         # logging.debug(trials.trials)
         return feed_dict
 
-    def _convert_trials_to_docs(self, space):
+    def _get_hyperopt_trials_instance(self, space):
         """
-        Converts dict-like trials to adhere to the 'internal' hyperopt format.
+        Converts dict-like trials to adhere to the 'internal' hyperopt format,
+        and populates the hyperopt.Trials object.
         This might seem unnecessarily complicated (and maybe it is),
         but I haven't managed to find a better way.
         """
