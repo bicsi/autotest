@@ -2,7 +2,7 @@
 
 #include "../../lib/generators.hpp"
 
-using namespace testutils;
+using namespace autotest;
 using namespace std;
 
 int main(int argc, char** argv) {

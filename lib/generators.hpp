@@ -5,7 +5,7 @@
 
 #include "params.hpp"
 
-namespace testutils {
+namespace autotest {
 
 // We use the Kumaraswamy distribution as a distribution very similar to the
 // Beta distribution but faster to sample.
@@ -79,4 +79,4 @@ class PartitionGen {
   }
 };
 
-}  // namespace testutils
+}  // namespace autotest
