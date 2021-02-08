@@ -313,6 +313,7 @@ def main(args):
         goal_targets = []
         while f'G{idx}' in test_dict:
             goal_targets.append(float(test_dict.pop(f'G{idx}')))
+            idx += 1
 
         logging.info(f"Generating test '{test_name}'...")
         logging.info(f"Goal targets: {goal_targets}")
